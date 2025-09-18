@@ -1,455 +1,497 @@
 <!DOCTYPE html>
 <html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PixiJS 4.7 Atlas Benchmark</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: #000;
-            font-family: Arial, sans-serif;
-            overflow: hidden;
-        }
-        
-        #gameContainer {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-        }
-        
-        #ui {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            z-index: 100;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 15px;
-            border-radius: 5px;
-            color: white;
-        }
-        
-        #hud {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            z-index: 100;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 15px;
-            border-radius: 5px;
-            color: white;
-            font-family: monospace;
-            font-size: 12px;
-            min-width: 200px;
-        }
-        
-        button {
-            padding: 8px 16px;
-            margin: 5px;
-            background: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        
-        button:hover {
-            background: #45a049;
-        }
-        
-        button:disabled {
-            background: #666;
-            cursor: not-allowed;
-        }
-        
-        .danger {
-            background: #f44336 !important;
-        }
-        
-        .danger:hover {
-            background: #da190b !important;
-        }
-        
-        input[type="range"] {
-            width: 200px;
-            margin: 10px 0;
-        }
-        
-        .control-group {
-            margin: 10px 0;
-        }
-        
-        label {
-            display: block;
-            margin-bottom: 5px;
-        }
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        font-family: Arial, sans-serif;
+        overflow: hidden;
+      }
+
+      #gameContainer {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      #ui {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 100;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 15px;
+        border-radius: 5px;
+        color: white;
+      }
+
+      #hud {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 100;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 15px;
+        border-radius: 5px;
+        color: white;
+        font-family: monospace;
+        font-size: 12px;
+        min-width: 200px;
+      }
+
+      button {
+        padding: 8px 16px;
+        margin: 5px;
+        background: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      button:hover {
+        background: #45a049;
+      }
+
+      button:disabled {
+        background: #666;
+        cursor: not-allowed;
+      }
+
+      .danger {
+        background: #f44336 !important;
+      }
+
+      .danger:hover {
+        background: #da190b !important;
+      }
+
+      input[type="range"] {
+        width: 200px;
+        margin: 10px 0;
+      }
+
+      .control-group {
+        margin: 10px 0;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 5px;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div id="gameContainer">
-        <div id="ui">
-            <div class="control-group">
-                <label for="spriteCount">스프라이트 개수: <span id="spriteCountValue">100</span></label>
-                <input type="range" id="spriteCount" min="10" max="5000" value="100" step="10">
-            </div>
-            
-            <div class="control-group">
-                <button id="batchValidBtn" disabled>배치 유효 (단일 아틀라스)</button>
-                <button id="batchInvalidBtn" disabled>배치 무효화 (이중 아틀라스)</button>
-                <button id="balancedBatchBtn" disabled>반반 배치 (두 텍스처)</button>
-            </div>
-            
-            <div class="control-group">
-                <button id="clearBtn" class="danger">모두 지우기</button>
-            </div>
+      <div id="ui">
+        <div class="control-group">
+          <label for="spriteCount"
+            >스프라이트 개수: <span id="spriteCountValue">100</span></label
+          >
+          <input
+            type="range"
+            id="spriteCount"
+            min="10"
+            max="5000"
+            value="100"
+            step="10"
+          />
         </div>
-        
-        <div id="hud">
-            <div>FPS: <span id="fps">0</span></div>
-            <div>Sprites: <span id="spriteCounter">0</span></div>
-            <div>Draw Calls: <span id="drawCalls">0</span></div>
-            <div>Texture Switches: <span id="textureSwitches">0</span></div>
-            <div>Atlas Count: <span id="atlasCount">0</span></div>
-            <div>Batch Mode: <span id="batchMode">None</span></div>
+
+        <div class="control-group">
+          <button id="batchValidBtn" disabled>배치 유효 (단일 아틀라스)</button>
+          <button id="batchInvalidBtn" disabled>
+            배치 무효화 (이중 아틀라스)
+          </button>
+          <button id="balancedBatchBtn" disabled>반반 배치 (두 텍스처)</button>
         </div>
+
+        <div class="control-group">
+          <button id="clearBtn" class="danger">모두 지우기</button>
+        </div>
+      </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/4.7.3/pixi.min.js"></script>
     <script src="pixi-canvas-profiler.js"></script>
     <script src="canvas-profiler-hud.js"></script>
     <script>
-        let app, sprites = [], animationMode = null;
-        let singleAtlasFrames = [];
-        let dualAtlasPrimaryFrames = [];
-        let dualAtlasSecondaryFrames = [];
-        const baseTextureLabels = new Map();
-        let profilerHUD = null;
-        let perfStats = {
-            fps: 0,
-            drawCalls: 0,
-            textureSwitches: 0,
-            atlasCount: 0,
-            frameCount: 0,
-            lastTime: Date.now()
-        };
+      let app,
+        sprites = [],
+        animationMode = null;
+      let singleAtlasFrames = [];
+      let dualAtlasPrimaryFrames = [];
+      let dualAtlasSecondaryFrames = [];
+      const baseTextureLabels = new Map();
+      let profilerHUD = null;
+      let perfStats = {
+        fps: 0,
+        drawCalls: 0,
+        textureSwitches: 0,
+        atlasCount: 0,
+        frameCount: 0,
+        lastTime: Date.now(),
+      };
 
-        function loadSpriteAtlases() {
-            return new Promise((resolve, reject) => {
-                const loader = new PIXI.loaders.Loader();
-                loader
-                    .add('singleAtlas', 'assets/atlas/mc.json')
-                    .add('dualAtlasPrimary', 'assets/atlas/monsters.json')
-                    .add('dualAtlasSecondary', 'assets/atlas/fighter.json');
+      function loadSpriteAtlases() {
+        return new Promise((resolve, reject) => {
+          const loader = new PIXI.loaders.Loader();
+          loader
+            .add("singleAtlas", "assets/atlas/mc.json")
+            .add("dualAtlasPrimary", "assets/atlas/monsters.json")
+            .add("dualAtlasSecondary", "assets/atlas/fighter.json");
 
-                loader.onError.add(reject);
-                loader.load((_, resources) => {
-                    try {
-                        const singleSheet = resources.singleAtlas && resources.singleAtlas.spritesheet;
-                        const dualSheetPrimary = resources.dualAtlasPrimary && resources.dualAtlasPrimary.spritesheet;
-                        const dualSheetSecondary = resources.dualAtlasSecondary && resources.dualAtlasSecondary.spritesheet;
+          loader.onError.add(reject);
+          loader.load((_, resources) => {
+            try {
+              const singleSheet =
+                resources.singleAtlas && resources.singleAtlas.spritesheet;
+              const dualSheetPrimary =
+                resources.dualAtlasPrimary &&
+                resources.dualAtlasPrimary.spritesheet;
+              const dualSheetSecondary =
+                resources.dualAtlasSecondary &&
+                resources.dualAtlasSecondary.spritesheet;
 
-                        if (!singleSheet || !dualSheetPrimary || !dualSheetSecondary) {
-                            throw new Error('필수 스프라이트시트를 불러오지 못했습니다.');
-                        }
+              if (!singleSheet || !dualSheetPrimary || !dualSheetSecondary) {
+                throw new Error("필수 스프라이트시트를 불러오지 못했습니다.");
+              }
 
-                        singleAtlasFrames = collectFrames(singleSheet, name => name.indexOf('Explosion_Sequence_A') === 0);
-                        if (!singleAtlasFrames.length) {
-                            singleAtlasFrames = collectFrames(singleSheet);
-                        }
+              singleAtlasFrames = collectFrames(
+                singleSheet,
+                (name) => name.indexOf("Explosion_Sequence_A") === 0
+              );
+              if (!singleAtlasFrames.length) {
+                singleAtlasFrames = collectFrames(singleSheet);
+              }
 
-                        dualAtlasPrimaryFrames = collectFrames(dualSheetPrimary);
-                        dualAtlasSecondaryFrames = collectFrames(dualSheetSecondary, name => name.indexOf('rollSequence') === 0);
-                        if (!dualAtlasSecondaryFrames.length) {
-                            dualAtlasSecondaryFrames = collectFrames(dualSheetSecondary);
-                        }
+              dualAtlasPrimaryFrames = collectFrames(dualSheetPrimary);
+              dualAtlasSecondaryFrames = collectFrames(
+                dualSheetSecondary,
+                (name) => name.indexOf("rollSequence") === 0
+              );
+              if (!dualAtlasSecondaryFrames.length) {
+                dualAtlasSecondaryFrames = collectFrames(dualSheetSecondary);
+              }
 
-                        registerBaseTextures('단일 아틀라스', singleAtlasFrames);
-                        registerBaseTextures('몬스터 아틀라스', dualAtlasPrimaryFrames);
-                        registerBaseTextures('격투 아틀라스', dualAtlasSecondaryFrames);
+              registerBaseTextures("단일 아틀라스", singleAtlasFrames);
+              registerBaseTextures("몬스터 아틀라스", dualAtlasPrimaryFrames);
+              registerBaseTextures("격투 아틀라스", dualAtlasSecondaryFrames);
 
-                        resolve();
-                    } catch (error) {
-                        reject(error);
-                    }
-                });
-            });
-        }
-
-        function collectFrames(spritesheet, filterFn = () => true) {
-            if (!spritesheet || !spritesheet.textures) return [];
-            return Object.entries(spritesheet.textures)
-                .filter(([name]) => filterFn(name))
-                .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: 'base' }))
-                .map(([, texture]) => texture);
-        }
-
-        function registerBaseTextures(label, frames) {
-            frames.forEach(texture => {
-                const base = texture && texture.baseTexture;
-                if (base && !baseTextureLabels.has(base.uid)) {
-                    baseTextureLabels.set(base.uid, label);
-                }
-            });
-        }
-
-        function sampleProfilerData() {
-            if (typeof window.getCanvasProfileData !== 'function') {
-                return;
+              resolve();
+            } catch (error) {
+              reject(error);
             }
+          });
+        });
+      }
 
-            const data = window.getCanvasProfileData() || {};
-            const drawCalls = typeof data.raster === 'number' ? data.raster : (data.total || 0);
-            const textureSwitches = typeof data.atlasSwitches === 'number' ? data.atlasSwitches : 0;
-            const uniqueAtlases = typeof data.uniqueAtlases === 'number' ? data.uniqueAtlases : perfStats.atlasCount;
+      function collectFrames(spritesheet, filterFn = () => true) {
+        if (!spritesheet || !spritesheet.textures) return [];
+        return Object.entries(spritesheet.textures)
+          .filter(([name]) => filterFn(name))
+          .sort((a, b) =>
+            a[0].localeCompare(b[0], undefined, {
+              numeric: true,
+              sensitivity: "base",
+            })
+          )
+          .map(([, texture]) => texture);
+      }
 
-            perfStats.drawCalls += drawCalls;
-            perfStats.textureSwitches += textureSwitches;
-            perfStats.atlasCount = uniqueAtlases;
+      function registerBaseTextures(label, frames) {
+        frames.forEach((texture) => {
+          const base = texture && texture.baseTexture;
+          if (base && !baseTextureLabels.has(base.uid)) {
+            baseTextureLabels.set(base.uid, label);
+          }
+        });
+      }
+
+      function sampleProfilerData() {
+        if (typeof window.getCanvasProfileData !== "function") {
+          return;
         }
 
-        function createSprite(x, y, mode, index = 0, total = 1) {
-            let sprite;
+        const data = window.getCanvasProfileData() || {};
+        const drawCalls =
+          typeof data.raster === "number" ? data.raster : data.total || 0;
+        const textureSwitches =
+          typeof data.atlasSwitches === "number" ? data.atlasSwitches : 0;
+        const uniqueAtlases =
+          typeof data.uniqueAtlases === "number"
+            ? data.uniqueAtlases
+            : perfStats.atlasCount;
 
-            if (mode === 'batchValid') {
-                const frames = dualAtlasSecondaryFrames.length ? dualAtlasSecondaryFrames : singleAtlasFrames.length ? singleAtlasFrames : [PIXI.Texture.WHITE];
-                sprite = new PIXI.Sprite(frames[0]);
-                sprite._frames = frames;
-                sprite._usesDualAtlases = false;
-                sprite._currentAtlasLabel = '격투 아틀라스';
-                sprite._frameSwitchInterval = Infinity;
-            } else if (mode === 'balanced') {
-                const primaryFrames = dualAtlasPrimaryFrames.length ? dualAtlasPrimaryFrames : [PIXI.Texture.WHITE];
-                const secondaryFrames = dualAtlasSecondaryFrames.length ? dualAtlasSecondaryFrames : [PIXI.Texture.WHITE];
-                const usePrimary = index < Math.ceil(total / 2);
-                const frames = usePrimary ? primaryFrames : secondaryFrames;
+        perfStats.drawCalls += drawCalls;
+        perfStats.textureSwitches += textureSwitches;
+        perfStats.atlasCount = uniqueAtlases;
+      }
 
-                sprite = new PIXI.Sprite(frames[0]);
-                sprite._frames = frames;
-                sprite._usesDualAtlases = false;
-                sprite._currentAtlasLabel = usePrimary ? '몬스터 아틀라스' : '격투 아틀라스';
-                sprite._frameSwitchInterval = Infinity;
-            } else {
-                const primaryFrames = dualAtlasPrimaryFrames.length ? dualAtlasPrimaryFrames : [PIXI.Texture.WHITE];
-                const secondaryFrames = dualAtlasSecondaryFrames.length ? dualAtlasSecondaryFrames : [PIXI.Texture.WHITE];
-                const startWithPrimary = Math.random() > 0.5;
-                const initialFrames = startWithPrimary ? primaryFrames : secondaryFrames;
+      function createSprite(x, y, mode, index = 0, total = 1) {
+        let sprite;
 
-                sprite = new PIXI.Sprite(initialFrames[0]);
-                sprite._frames = initialFrames;
-                sprite._framesPrimary = primaryFrames;
-                sprite._framesSecondary = secondaryFrames;
-                sprite._usesDualAtlases = true;
-                sprite._currentAtlasLabel = startWithPrimary ? '몬스터 아틀라스' : '격투 아틀라스';
-                sprite._frameSwitchInterval = 90; // 프레임마다 아틀라스 전환
+        if (mode === "batchValid") {
+          const frames = dualAtlasSecondaryFrames.length
+            ? dualAtlasSecondaryFrames
+            : singleAtlasFrames.length
+            ? singleAtlasFrames
+            : [PIXI.Texture.WHITE];
+          sprite = new PIXI.Sprite(frames[0]);
+          sprite._frames = frames;
+          sprite._usesDualAtlases = false;
+          sprite._currentAtlasLabel = "격투 아틀라스";
+          sprite._frameSwitchInterval = Infinity;
+        } else if (mode === "balanced") {
+          const primaryFrames = dualAtlasPrimaryFrames.length
+            ? dualAtlasPrimaryFrames
+            : [PIXI.Texture.WHITE];
+          const secondaryFrames = dualAtlasSecondaryFrames.length
+            ? dualAtlasSecondaryFrames
+            : [PIXI.Texture.WHITE];
+          const usePrimary = index < Math.ceil(total / 2);
+          const frames = usePrimary ? primaryFrames : secondaryFrames;
+
+          sprite = new PIXI.Sprite(frames[0]);
+          sprite._frames = frames;
+          sprite._usesDualAtlases = false;
+          sprite._currentAtlasLabel = usePrimary
+            ? "몬스터 아틀라스"
+            : "격투 아틀라스";
+          sprite._frameSwitchInterval = Infinity;
+        } else {
+          const primaryFrames = dualAtlasPrimaryFrames.length
+            ? dualAtlasPrimaryFrames
+            : [PIXI.Texture.WHITE];
+          const secondaryFrames = dualAtlasSecondaryFrames.length
+            ? dualAtlasSecondaryFrames
+            : [PIXI.Texture.WHITE];
+          const startWithPrimary = Math.random() > 0.5;
+          const initialFrames = startWithPrimary
+            ? primaryFrames
+            : secondaryFrames;
+
+          sprite = new PIXI.Sprite(initialFrames[0]);
+          sprite._frames = initialFrames;
+          sprite._framesPrimary = primaryFrames;
+          sprite._framesSecondary = secondaryFrames;
+          sprite._usesDualAtlases = true;
+          sprite._currentAtlasLabel = startWithPrimary
+            ? "몬스터 아틀라스"
+            : "격투 아틀라스";
+          sprite._frameSwitchInterval = 90; // 프레임마다 아틀라스 전환
+        }
+
+        sprite.width = 96;
+        sprite.height = 96;
+        sprite.x = x;
+        sprite.y = y;
+        sprite.anchor.set(0.5);
+
+        // 애니메이션 속성
+        sprite.vx = (Math.random() - 0.5) * 4;
+        sprite.vy = (Math.random() - 0.5) * 4;
+        sprite.rotation = Math.random() * Math.PI * 2;
+        sprite.rotationSpeed = (Math.random() - 0.5) * 0.1;
+        sprite._animationFrame = 0;
+        sprite._animationSpeed = mode === "batchValid" ? 0.35 : 0.45;
+        sprite._switchTimer = sprite._frameSwitchInterval;
+
+        return sprite;
+      }
+
+      function updateSprites() {
+        sprites.forEach((sprite) => {
+          if (!sprite || sprite.destroyed) {
+            return;
+          }
+          // 위치 업데이트
+          sprite.x += sprite.vx;
+          sprite.y += sprite.vy;
+          sprite.rotation += sprite.rotationSpeed;
+
+          // 경계 체크
+          if (sprite.x < 0 || sprite.x > app.screen.width) sprite.vx *= -1;
+          if (sprite.y < 0 || sprite.y > app.screen.height) sprite.vy *= -1;
+
+          // 프레임 애니메이션 업데이트
+          const frames =
+            sprite._frames && sprite._frames.length
+              ? sprite._frames
+              : [PIXI.Texture.WHITE];
+          sprite._animationFrame += sprite._animationSpeed;
+          const frameIndex = Math.floor(sprite._animationFrame) % frames.length;
+          let frameTexture = frames[frameIndex];
+          if (
+            !frameTexture ||
+            !frameTexture.baseTexture ||
+            frameTexture.baseTexture.hasLoaded === false
+          ) {
+            frameTexture = PIXI.Texture.WHITE;
+          }
+          if (sprite.texture !== frameTexture) {
+            sprite.texture = frameTexture;
+          }
+
+          // 아틀라스 전환 애니메이션 (배치 무효 모드)
+          if (sprite._usesDualAtlases && Number.isFinite(sprite._switchTimer)) {
+            sprite._switchTimer--;
+            if (sprite._switchTimer <= 0) {
+              sprite._switchTimer = sprite._frameSwitchInterval;
+              const nextFrames =
+                sprite._frames === sprite._framesPrimary
+                  ? sprite._framesSecondary
+                  : sprite._framesPrimary;
+              sprite._frames = nextFrames;
+              sprite._animationFrame = 0;
+              sprite._currentAtlasLabel =
+                nextFrames === sprite._framesPrimary
+                  ? "몬스터 아틀라스"
+                  : "격투 아틀라스";
             }
+          }
 
-            sprite.width = 96;
-            sprite.height = 96;
-            sprite.x = x;
-            sprite.y = y;
-            sprite.anchor.set(0.5);
-            
-            // 애니메이션 속성
-            sprite.vx = (Math.random() - 0.5) * 4;
-            sprite.vy = (Math.random() - 0.5) * 4;
-            sprite.rotation = Math.random() * Math.PI * 2;
-            sprite.rotationSpeed = (Math.random() - 0.5) * 0.1;
-            sprite._animationFrame = 0;
-            sprite._animationSpeed = mode === 'batchValid' ? 0.35 : 0.45;
-            sprite._switchTimer = sprite._frameSwitchInterval;
-            
-            return sprite;
+          const activeTexture = sprite.texture;
+          if (activeTexture && activeTexture.baseTexture) {
+            sprite._currentAtlasLabel =
+              baseTextureLabels.get(activeTexture.baseTexture.uid) ||
+              sprite._currentAtlasLabel;
+          }
+        });
+      }
+
+      function createSprites(count, mode) {
+        clearSprites();
+
+        for (let i = 0; i < count; i++) {
+          const x = Math.random() * app.screen.width;
+          const y = Math.random() * app.screen.height;
+          const sprite = createSprite(x, y, mode, i, count);
+          sprites.push(sprite);
+          app.stage.addChild(sprite);
         }
 
-        function updateSprites() {
-            sprites.forEach(sprite => {
-                if (!sprite || sprite.destroyed) {
-                    return;
-                }
-                // 위치 업데이트
-                sprite.x += sprite.vx;
-                sprite.y += sprite.vy;
-                sprite.rotation += sprite.rotationSpeed;
+        if (mode === "batchValid") {
+          animationMode = "Batch Valid (Single Atlas)";
+        } else if (mode === "balanced") {
+          animationMode = "Balanced (Half & Half)";
+        } else {
+          animationMode = "Batch Invalid (Dual Atlas)";
+        }
+      }
 
-                // 경계 체크
-                if (sprite.x < 0 || sprite.x > app.screen.width) sprite.vx *= -1;
-                if (sprite.y < 0 || sprite.y > app.screen.height) sprite.vy *= -1;
+      function clearSprites() {
+        sprites.forEach((sprite) => {
+          if (!sprite) return;
+          app.stage.removeChild(sprite);
+          sprite.destroy({
+            children: false,
+            texture: false,
+            baseTexture: false,
+          });
+        });
+        sprites = [];
+        animationMode = null;
+      }
 
-                // 프레임 애니메이션 업데이트
-                const frames = sprite._frames && sprite._frames.length ? sprite._frames : [PIXI.Texture.WHITE];
-                sprite._animationFrame += sprite._animationSpeed;
-                const frameIndex = Math.floor(sprite._animationFrame) % frames.length;
-                let frameTexture = frames[frameIndex];
-                if (!frameTexture || !frameTexture.baseTexture || frameTexture.baseTexture.hasLoaded === false) {
-                    frameTexture = PIXI.Texture.WHITE;
-                }
-                if (sprite.texture !== frameTexture) {
-                    sprite.texture = frameTexture;
-                }
+      function setupUI() {
+        const spriteCountSlider = document.getElementById("spriteCount");
+        const spriteCountValue = document.getElementById("spriteCountValue");
+        const batchValidBtn = document.getElementById("batchValidBtn");
+        const batchInvalidBtn = document.getElementById("batchInvalidBtn");
+        const balancedBatchBtn = document.getElementById("balancedBatchBtn");
+        const clearBtn = document.getElementById("clearBtn");
 
-                // 아틀라스 전환 애니메이션 (배치 무효 모드)
-                if (sprite._usesDualAtlases && Number.isFinite(sprite._switchTimer)) {
-                    sprite._switchTimer--;
-                    if (sprite._switchTimer <= 0) {
-                        sprite._switchTimer = sprite._frameSwitchInterval;
-                        const nextFrames = sprite._frames === sprite._framesPrimary ? sprite._framesSecondary : sprite._framesPrimary;
-                        sprite._frames = nextFrames;
-                        sprite._animationFrame = 0;
-                        sprite._currentAtlasLabel = nextFrames === sprite._framesPrimary ? '몬스터 아틀라스' : '격투 아틀라스';
-                    }
-                }
+        spriteCountSlider.addEventListener("input", (e) => {
+          spriteCountValue.textContent = e.target.value;
+        });
 
-                const activeTexture = sprite.texture;
-                if (activeTexture && activeTexture.baseTexture) {
-                    sprite._currentAtlasLabel = baseTextureLabels.get(activeTexture.baseTexture.uid) || sprite._currentAtlasLabel;
-                }
-            });
+        batchValidBtn.addEventListener("click", () => {
+          const count = parseInt(spriteCountSlider.value);
+          createSprites(count, "batchValid");
+        });
+
+        batchInvalidBtn.addEventListener("click", () => {
+          const count = parseInt(spriteCountSlider.value);
+          createSprites(count, "batchInvalid");
+        });
+
+        balancedBatchBtn.addEventListener("click", () => {
+          const count = parseInt(spriteCountSlider.value);
+          createSprites(count, "balanced");
+        });
+
+        clearBtn.addEventListener("click", () => {
+          clearSprites();
+        });
+      }
+
+      function init() {
+        // PixiJS 앱 생성 (Canvas 강제)
+        app = new PIXI.Application({
+          width: window.innerWidth,
+          height: window.innerHeight,
+          backgroundColor: 0x1a1a1a,
+          forceCanvas: true,
+          antialias: false,
+        });
+
+        document.getElementById("gameContainer").appendChild(app.view);
+
+        // 아틀라스 텍스처 로드
+        loadSpriteAtlases()
+          .then(() => {
+            console.log("Sprite atlases loaded successfully");
+            // UI 활성화
+            document.getElementById("batchValidBtn").disabled = false;
+            document.getElementById("batchInvalidBtn").disabled = false;
+            document.getElementById("balancedBatchBtn").disabled = false;
+          })
+          .catch((error) => {
+            console.error("Failed to load sprite atlases:", error);
+            alert(
+              "스프라이트 아틀라스 로드 실패. 다운로드된 파일을 확인해주세요."
+            );
+          });
+
+        // UI 설정
+        setupUI();
+
+        if (window.__hud && typeof window.__hud.create === "function") {
+          profilerHUD = window.__hud.create({
+            position: "bottom-right",
+          });
         }
 
-        function updateHUD() {
-            const currentTime = Date.now();
-            if (currentTime - perfStats.lastTime >= 1000) {
-                perfStats.fps = perfStats.frameCount;
-                perfStats.frameCount = 0;
-                perfStats.lastTime = currentTime;
-                
-                document.getElementById('fps').textContent = perfStats.fps;
-                document.getElementById('drawCalls').textContent = perfStats.drawCalls;
-                document.getElementById('textureSwitches').textContent = perfStats.textureSwitches;
-                document.getElementById('atlasCount').textContent = perfStats.atlasCount;
-                
-                // 프레임별 카운터 리셋
-                perfStats.drawCalls = 0;
-                perfStats.textureSwitches = 0;
-            }
-            
-            document.getElementById('spriteCounter').textContent = sprites.length;
-            document.getElementById('batchMode').textContent = animationMode || 'None';
-            
-            perfStats.frameCount++;
-        }
+        app.renderer.on("postrender", () => {
+          sampleProfilerData();
 
-        function createSprites(count, mode) {
-            clearSprites();
-            
-            for (let i = 0; i < count; i++) {
-                const x = Math.random() * app.screen.width;
-                const y = Math.random() * app.screen.height;
-                const sprite = createSprite(x, y, mode, i, count);
-                sprites.push(sprite);
-                app.stage.addChild(sprite);
-            }
-            
-            if (mode === 'batchValid') {
-                animationMode = 'Batch Valid (Single Atlas)';
-            } else if (mode === 'balanced') {
-                animationMode = 'Balanced (Half & Half)';
-            } else {
-                animationMode = 'Batch Invalid (Dual Atlas)';
-            }
-        }
+          if (profilerHUD && typeof profilerHUD.update === "function") {
+            profilerHUD.update();
+          } else if (typeof window.resetCanvasProfiler === "function") {
+            window.resetCanvasProfiler();
+          }
+        });
 
-        function clearSprites() {
-            sprites.forEach(sprite => {
-                if (!sprite) return;
-                app.stage.removeChild(sprite);
-                sprite.destroy({ children: false, texture: false, baseTexture: false });
-            });
-            sprites = [];
-            animationMode = null;
-        }
+        // 게임 루프
+        app.ticker.add(() => {
+          updateSprites();
+        });
 
-        function setupUI() {
-            const spriteCountSlider = document.getElementById('spriteCount');
-            const spriteCountValue = document.getElementById('spriteCountValue');
-            const batchValidBtn = document.getElementById('batchValidBtn');
-            const batchInvalidBtn = document.getElementById('batchInvalidBtn');
-            const balancedBatchBtn = document.getElementById('balancedBatchBtn');
-            const clearBtn = document.getElementById('clearBtn');
-            
-            spriteCountSlider.addEventListener('input', (e) => {
-                spriteCountValue.textContent = e.target.value;
-            });
-            
-            batchValidBtn.addEventListener('click', () => {
-                const count = parseInt(spriteCountSlider.value);
-                createSprites(count, 'batchValid');
-            });
-            
-            batchInvalidBtn.addEventListener('click', () => {
-                const count = parseInt(spriteCountSlider.value);
-                createSprites(count, 'batchInvalid');
-            });
+        // 윈도우 리사이즈 처리
+        window.addEventListener("resize", () => {
+          app.renderer.resize(window.innerWidth, window.innerHeight);
+        });
+      }
 
-            balancedBatchBtn.addEventListener('click', () => {
-                const count = parseInt(spriteCountSlider.value);
-                createSprites(count, 'balanced');
-            });
-            
-            clearBtn.addEventListener('click', () => {
-                clearSprites();
-            });
-        }
-
-        function init() {
-            // PixiJS 앱 생성 (Canvas 강제)
-            app = new PIXI.Application({
-                width: window.innerWidth,
-                height: window.innerHeight,
-                backgroundColor: 0x1a1a1a,
-                forceCanvas: true,
-                antialias: false
-            });
-            
-            document.getElementById('gameContainer').appendChild(app.view);
-            
-            // 아틀라스 텍스처 로드
-            loadSpriteAtlases().then(() => {
-                console.log('Sprite atlases loaded successfully');
-                // UI 활성화
-                document.getElementById('batchValidBtn').disabled = false;
-                document.getElementById('batchInvalidBtn').disabled = false;
-                document.getElementById('balancedBatchBtn').disabled = false;
-            }).catch((error) => {
-                console.error('Failed to load sprite atlases:', error);
-                alert('스프라이트 아틀라스 로드 실패. 다운로드된 파일을 확인해주세요.');
-            });
-            
-            // UI 설정
-            setupUI();
-
-            if (window.__hud && typeof window.__hud.create === 'function') {
-                profilerHUD = window.__hud.create({
-                    position: 'bottom-right'
-                });
-            }
-
-            app.renderer.on('postrender', () => {
-                sampleProfilerData();
-
-                if (profilerHUD && typeof profilerHUD.update === 'function') {
-                    profilerHUD.update();
-                } else if (typeof window.resetCanvasProfiler === 'function') {
-                    window.resetCanvasProfiler();
-                }
-            });
-            
-            // 게임 루프
-            app.ticker.add(() => {
-                updateSprites();
-                updateHUD();
-            });
-            
-            // 윈도우 리사이즈 처리
-            window.addEventListener('resize', () => {
-                app.renderer.resize(window.innerWidth, window.innerHeight);
-            });
-        }
-
-        // 초기화
-        window.addEventListener('load', init);
+      // 초기화
+      window.addEventListener("load", init);
     </script>
-</body>
+  </body>
 </html>
