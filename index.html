@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>PixiJS 4.7 Canvas 최적화 실습</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- PixiJS 4.7.x -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/4.7.3/pixi.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #111;
+        height: 100%;
+      }
+      #ui {
+        position: fixed;
+        left: 12px;
+        top: 12px;
+        z-index: 2;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      #ui button {
+        background: #222;
+        color: #fff;
+        border: 1px solid #555;
+        border-radius: 6px;
+        padding: 8px 10px;
+        cursor: pointer;
+        font: 13px/1.2 system-ui, sans-serif;
+      }
+      #ui button:hover {
+        background: #2b2b2b;
+      }
+      #hud {
+        position: fixed;
+        right: 12px;
+        top: 12px;
+        z-index: 2;
+        background: rgba(0, 0, 0, 0.7);
+        color: #0f0;
+        padding: 10px 12px;
+        border-radius: 10px;
+        font: 12px/1.35 monospace;
+        white-space: pre;
+        pointer-events: none;
+        min-width: 320px;
+      }
+      #note {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        z-index: 2;
+        color: #aaa;
+        font: 12px/1.4 system-ui, sans-serif;
+      }
+      canvas {
+        display: block;
+        margin: 0 auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <button id="sceneBatch">배치 우호 (아틀라스 1개)</button>
+      <button id="sceneChaos">배치 비우호 (텍스처/블렌드 뒤섞기)</button>
+      <button id="clear">모두 지우기</button>
+    </div>
+    <div id="hud">loading…</div>
+    <div id="note">
+      Canvas 기준: drawImage/텍스트/도형/clip/clear 호출을 전부 카운트합니다.
+    </div>
+
+    <script>
+      /* ==========================================================
+         0) CanvasRenderingContext2D 패치 (프레임별 드로잉 계측)
+         - Canvas 모드에서의 "드로우콜" = 실제 2D API로 픽셀을 바꾸는 호출
+         - 카테고리: raster / path / text / clear / clip (+ blendChanges, texturesUsed)
+      ========================================================== */
+      /* ==========================================================
+         CanvasRenderingContext2D 패치 (raster ↔ texturesUsed 분리)
+         - raster: drawImage 호출 "횟수" (소스 동일 여부와 무관)
+         - texturesUsed: 이번 프레임에 drawImage로 사용된 "고유 소스" 수
+      ========================================================== */
+      (function patchCanvas2D() {
+        const proto =
+          window.CanvasRenderingContext2D && CanvasRenderingContext2D.prototype;
+        if (!proto || proto.__PIXIV47_CANVAS_PROF2__) return;
+        proto.__PIXIV47_CANVAS_PROF2__ = true;
+
+        const counters = {
+          total: 0,
+          raster: 0, // drawImage 호출수 + putImageData 호출수
+          path: 0,
+          text: 0,
+          clear: 0,
+          clip: 0,
+          blendChanges: 0,
+          texturesUsed: 0, // 고유 소스 수(이미지/캔버스/비디오 등)
+        };
+        const uniqueSources = new Set();
+        window.__canvasCounters = counters;
+        window.__resetCanvasCounters = function () {
+          counters.total = counters.raster = counters.path = counters.text = 0;
+          counters.clear = counters.clip = counters.blendChanges = 0;
+          uniqueSources.clear();
+          counters.texturesUsed = 0;
+        };
+
+        const wrap = (name, bucket) => {
+          const orig = proto[name];
+          if (!orig) return;
+          proto[name] = function (...args) {
+            // 1) 카운팅
+            if (bucket === "raster_drawImage") {
+              // drawImage는 호출될 때마다 무조건 +1
+              counters.raster++;
+              counters.total++;
+              // 고유 소스 집계는 별도
+              const src = args[0];
+              if (src) {
+                uniqueSources.add(src);
+                counters.texturesUsed = uniqueSources.size;
+              }
+            } else if (bucket === "raster_putImageData") {
+              counters.raster++;
+              counters.total++;
+            } else if (bucket === "path") {
+              counters.path++;
+              counters.total++;
+            } else if (bucket === "text") {
+              counters.text++;
+              counters.total++;
+            } else if (bucket === "clear") {
+              counters.clear++;
+              counters.total++;
+            } else if (bucket === "clip") {
+              counters.clip++;
+              counters.total++;
+            }
+            // 2) 실제 호출
+            return orig.apply(this, args);
+          };
+        };
+
+        // raster (분리 계측)
+        wrap("drawImage", "raster_drawImage");
+        wrap("putImageData", "raster_putImageData");
+
+        // path/shape
+        ["fill", "stroke", "fillRect", "strokeRect"].forEach((fn) =>
+          wrap(fn, "path")
+        );
+
+        // text
+        ["fillText", "strokeText"].forEach((fn) => wrap(fn, "text"));
+
+        // clear & clip
+        wrap("clearRect", "clear");
+        wrap("clip", "clip");
+
+        // globalCompositeOperation 변경 감지 (blendChanges)
+        const desc = Object.getOwnPropertyDescriptor(
+          proto,
+          "globalCompositeOperation"
+        );
+        if (desc && desc.set && desc.get) {
+          Object.defineProperty(proto, "globalCompositeOperation", {
+            get: desc.get,
+            set(v) {
+              const cur = desc.get.call(this);
+              if (v !== cur) counters.blendChanges++;
+              return desc.set.call(this, v);
+            },
+          });
+        } else {
+          let _gco = "source-over";
+          Object.defineProperty(proto, "globalCompositeOperation", {
+            get() {
+              return _gco;
+            },
+            set(v) {
+              if (v !== _gco) {
+                counters.blendChanges++;
+                _gco = v;
+              }
+            },
+          });
+        }
+      })();
+
+      /* ==========================================================
+         1) Pixi 4.7 앱 (CanvasRenderer 강제)
+      ========================================================== */
+      const app = new PIXI.Application({
+        width: 960,
+        height: 540,
+        backgroundColor: 0x000000,
+        antialias: true,
+        forceCanvas: true, // ★ Canvas 모드 강제
+      });
+      document.body.appendChild(app.view);
+
+      const world = new PIXI.Container();
+      app.stage.addChild(world);
+
+      /* ==========================================================
+         2) 유틸 함수
+      ========================================================== */
+      function rand(min, max) {
+        return Math.random() * (max - min) + min;
+      }
+      function randInt(min, max) {
+        return ((Math.random() * (max - min + 1)) | 0) + min;
+      }
+
+      // 캔버스에서 쓸 간단한 텍스처 생성 (Graphics → RenderTexture)
+      function makeSolidTexture(w, h, color) {
+        const g = new PIXI.Graphics();
+        g.beginFill(color);
+        g.drawRect(0, 0, w, h);
+        g.endFill();
+        const rt = PIXI.RenderTexture.create(w, h);
+        app.renderer.render(g, rt, true);
+        g.destroy(true);
+        return new PIXI.Texture(rt);
+      }
+
+      // 하나의 BaseTexture에서 프레임(서브렉트) 텍스처 만들기 → 아틀라스 효과
+      function makeAtlasTextureFromBase(baseTex, frameSize) {
+        const cols = Math.floor(baseTex.width / frameSize);
+        const rows = Math.floor(baseTex.height / frameSize);
+        const x = randInt(0, cols - 1) * frameSize;
+        const y = randInt(0, rows - 1) * frameSize;
+        return new PIXI.Texture(
+          baseTex,
+          new PIXI.Rectangle(x, y, frameSize, frameSize)
+        );
+      }
+
+      /* ==========================================================
+         3) 아틀라스(=BaseTexture 하나) 준비
+      ========================================================== */
+      const atlasBase = (function () {
+        const tile = 64,
+          cols = 8,
+          rows = 8;
+        const g = new PIXI.Graphics();
+        for (let j = 0; j < rows; j++) {
+          for (let i = 0; i < cols; i++) {
+            g.beginFill((Math.random() * 0xffffff) | 0, 1);
+            g.drawRect(i * tile, j * tile, tile, tile);
+            g.endFill();
+          }
+        }
+        const w = cols * tile,
+          h = rows * tile;
+        const rt = PIXI.RenderTexture.create(w, h);
+        app.renderer.render(g, rt, true);
+        g.destroy(true);
+        return rt.baseTexture;
+      })();
+
+      const BLENDS = [
+        PIXI.BLEND_MODES.NORMAL,
+        PIXI.BLEND_MODES.ADD,
+        PIXI.BLEND_MODES.MULTIPLY,
+        PIXI.BLEND_MODES.SCREEN,
+      ];
+
+      /* ==========================================================
+         4) 두 가지 장면
+      ========================================================== */
+      // 배치 우호: 동일 BaseTexture + 동일 blend
+      function buildSceneBatchFriendly(count = 800) {
+        clearScene();
+        for (let i = 0; i < count; i++) {
+          const frameTex = makeAtlasTextureFromBase(atlasBase, 64);
+          const sp = new PIXI.Sprite(frameTex);
+          sp.anchor.set(0.5);
+          sp.x = rand(40, app.renderer.width - 40);
+          sp.y = rand(40, app.renderer.height - 40);
+          sp.scale.set(rand(0.6, 1.2));
+          sp.rotation = rand(0, Math.PI * 2);
+          sp.blendMode = PIXI.BLEND_MODES.NORMAL; // 동일 블렌드 유지 → 배치 유지(캔버스에서도 상태변경 최소)
+          world.addChild(sp);
+        }
+      }
+
+      // 배치 비우호: 매번 다른 BaseTexture + 블렌드 뒤섞기
+      function buildSceneChaos(count = 800) {
+        clearScene();
+        for (let i = 0; i < count; i++) {
+          const color = (Math.random() * 0xffffff) | 0;
+          const tex = makeSolidTexture(64, 64, color); // 매번 다른 BaseTexture → drawImage 소스 교체 증가
+          const sp = new PIXI.Sprite(tex);
+          sp.anchor.set(0.5);
+          sp.x = rand(40, app.renderer.width - 40);
+          sp.y = rand(40, app.renderer.height - 40);
+          sp.scale.set(rand(0.6, 1.2));
+          sp.rotation = rand(0, Math.PI * 2);
+          sp.blendMode = BLENDS[randInt(0, BLENDS.length - 1)]; // 블렌드 섞기 → globalCompositeOperation 변경 증가
+          world.addChild(sp);
+        }
+      }
+
+      function clearScene() {
+        const arr = world.removeChildren();
+        arr.forEach((c) => {
+          // Canvas에서도 RenderTexture 기반은 destroy(true)로 내부 자원 정리
+          c.destroy(true);
+        });
+      }
+
+      /* ==========================================================
+         5) HUD 업데이트 (프레임별 계측값 표시)
+      ========================================================== */
+      const hud = document.getElementById("hud");
+      let last = performance.now();
+      let fps = 0;
+
+      app.ticker.add(() => {
+        const now = performance.now();
+        fps = 1000 / (now - last);
+        last = now;
+
+        const c = window.__canvasCounters || {
+          total: 0,
+          raster: 0,
+          path: 0,
+          text: 0,
+          clear: 0,
+          clip: 0,
+          blendChanges: 0,
+          texturesUsed: 0,
+        };
+
+        const a = window.__atlasCanvas || { switches: 0, unique: 0 };
+        const loggingStatus = window.__isAtlasLoggingEnabled ? window.__isAtlasLoggingEnabled() : false;
+
+        hud.textContent = `Canvas Profiler (per frame)
+      FPS: ${fps.toFixed(1)}
+      total: ${c.total}
+        raster: ${c.raster}   (drawImage/putImageData)
+        path  : ${c.path}     (fill/stroke/rect)
+        text  : ${c.text}     (fillText/strokeText)
+        clear : ${c.clear}    (clearRect)
+        clip  : ${c.clip}     (clip)
+      blendChanges: ${c.blendChanges}    (globalCompositeOperation)
+      texturesUsed: ${c.texturesUsed}    (drawImage의 서로 다른 원본 수)
+      atlasSwitches: ${a.switches}    ← (BaseTexture 전환 횟수)
+      uniqueAtlases: ${a.unique}      ← (프레임 내 고유 BaseTexture 수)
+      childrens: ${world.children.length}
+      Atlas Logging: ${loggingStatus ? 'ON' : 'OFF'} (switch logs: ${loggingStatus ? (a._switchLog?.length || 0) : 'disabled'})`;
+
+        // 프레임 경계에서 카운터 리셋
+        if (window.__resetCanvasCounters) window.__resetCanvasCounters();
+        if (window.__resetAtlasCanvas) window.__resetAtlasCanvas();
+      });
+
+      /* ==========================================================
+         6) UI 바인딩 & 시작 장면
+      ========================================================== */
+      document.getElementById("sceneBatch").onclick = () =>
+        buildSceneBatchFriendly(800);
+      document.getElementById("sceneChaos").onclick = () =>
+        buildSceneChaos(800);
+      document.getElementById("clear").onclick = () => clearScene();
+
+      buildSceneBatchFriendly(800); // 시작은 배치 우호
+    </script>
+
+    <script>
+      /* ==========================================================
+   PixiJS 4.7 (Canvas) - 아틀라스 전환/고유 수 계측 확장
+   - atlas.switches: 이전 BaseTexture와 다른 BaseTexture가 등장할 때마다 +1
+   - atlas.unique  : 프레임 내 서로 다른 BaseTexture 수 (Set 기반)
+========================================================== */
+
+      // 프레임별 아틀라스 카운터/상태
+      window.__atlasCanvas = {
+        switches: 0,
+        unique: 0,
+        _lastId: null,
+        _set: new Set(),
+      };
+
+      // 프레임 경계에서 리셋할 함수 (기존 reset에 같이 호출해 주세요)
+      window.__resetAtlasCanvas = function () {
+        const A = window.__atlasCanvas;
+        A.switches = 0;
+        A.unique = 0;
+        A._lastId = null;
+        A._set.clear();
+      };
+
+      // BaseTexture를 프레임 내에서 식별할 ID 뽑기
+      function __getAtlasIdFromBaseTexture(baseTexture) {
+        if (!baseTexture) return null;
+
+        // v4.7에선 source나 (비공개) _imageUrl가 있으면 그걸 우선 식별자로 사용
+        const src =
+          baseTexture.source || baseTexture.imageUrl || baseTexture._imageUrl;
+        if (src) return src;
+
+        // 없으면 고유 ID를 부여 (한 번만)
+        if (!baseTexture.__atlasId) {
+          if (PIXI.utils && PIXI.utils.uid) {
+            baseTexture.__atlasId = "bt_" + PIXI.utils.uid();
+          } else {
+            baseTexture.__atlasId = "bt_" + Math.random().toString(36).slice(2);
+          }
+        }
+        return baseTexture.__atlasId;
+      }
+
+      // BaseTexture 관측(한 스프라이트 렌더 직전에 호출)
+      function __noteCanvasAtlas(baseTexture) {
+        const A = window.__atlasCanvas;
+        const id = __getAtlasIdFromBaseTexture(baseTexture);
+        if (id == null) return;
+
+        // 전환 감지: 직전과 다르면 switches++
+        if (A._lastId !== null && A._lastId !== id) {
+          A.switches++;
+        }
+        A._lastId = id;
+
+        // 고유 아틀라스(페이지) 집계
+        A._set.add(id);
+        A.unique = A._set.size;
+      }
+
+      // Sprite의 Canvas 렌더 경로 훅킹
+      (function patchSpriteCanvasRenderForAtlas() {
+        if (!window.PIXI || !PIXI.Sprite) return;
+        const P = PIXI.Sprite.prototype;
+        if (P.__ATLAS_CANVAS_PATCHED__) return;
+        P.__ATLAS_CANVAS_PATCHED__ = true;
+
+        const orig = P._renderCanvas;
+        if (!orig) return; // CanvasRenderer가 없거나 경로가 다를 경우 안전 탈출
+
+        P._renderCanvas = function (renderer) {
+          try {
+            const tex = this.texture;
+            const base = tex && tex.baseTexture;
+            __noteCanvasAtlas(base);
+          } catch (e) {
+            /* noop */
+          }
+
+          return orig.apply(this, arguments);
+        };
+      })();
+
+      // (선택) Mesh도 Canvas 렌더 경로가 있으면 훅킹
+      (function patchMeshCanvasRenderForAtlas() {
+        if (!PIXI.mesh || !PIXI.mesh.Mesh) return;
+        const M = PIXI.mesh.Mesh.prototype;
+        if (!M._renderCanvas || M.__ATLAS_CANVAS_PATCHED__) return;
+
+        M.__ATLAS_CANVAS_PATCHED__ = true;
+        const orig = M._renderCanvas;
+        M._renderCanvas = function (renderer) {
+          try {
+            const tex = this.texture || (this.shader && this.shader.texture);
+            const base = tex && tex.baseTexture;
+            __noteCanvasAtlas(base);
+          } catch (e) {
+            /* noop */
+          }
+
+          return orig.apply(this, arguments);
+        };
+      })();
+    </script>
+  </body>
+</html>
