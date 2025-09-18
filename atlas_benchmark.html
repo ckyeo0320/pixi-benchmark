@@ -91,11 +91,9 @@
     <div id="gameContainer">
       <div id="ui">
         <div class="control-group">
-          <label for="spriteCount"
-            >스프라이트 개수: <span id="spriteCountValue">100</span></label
-          >
+          <label for="spriteCount">스프라이트 개수</label>
           <input
-            type="range"
+            type="number"
             id="spriteCount"
             min="10"
             max="5000"
@@ -401,29 +399,41 @@
       }
 
       function setupUI() {
-        const spriteCountSlider = document.getElementById("spriteCount");
-        const spriteCountValue = document.getElementById("spriteCountValue");
+        const spriteCountInput = document.getElementById("spriteCount");
         const batchValidBtn = document.getElementById("batchValidBtn");
         const batchInvalidBtn = document.getElementById("batchInvalidBtn");
         const balancedBatchBtn = document.getElementById("balancedBatchBtn");
         const clearBtn = document.getElementById("clearBtn");
 
-        spriteCountSlider.addEventListener("input", (e) => {
-          spriteCountValue.textContent = e.target.value;
-        });
+        const clampSpriteCount = (value) => {
+          const min = parseInt(spriteCountInput.min, 10) || 0;
+          const max = parseInt(spriteCountInput.max, 10) || Number.MAX_SAFE_INTEGER;
+          const safeValue = Number.isFinite(value) ? value : min;
+          return Math.min(Math.max(safeValue, min), max);
+        };
+
+        const resolveSpriteCount = () => {
+          const value = parseInt(spriteCountInput.value, 10);
+          const clamped = clampSpriteCount(value);
+          spriteCountInput.value = clamped;
+          return clamped;
+        };
+
+        spriteCountInput.addEventListener("change", resolveSpriteCount);
+        spriteCountInput.addEventListener("blur", resolveSpriteCount);
 
         batchValidBtn.addEventListener("click", () => {
-          const count = parseInt(spriteCountSlider.value);
+          const count = resolveSpriteCount();
           createSprites(count, "batchValid");
         });
 
         batchInvalidBtn.addEventListener("click", () => {
-          const count = parseInt(spriteCountSlider.value);
+          const count = resolveSpriteCount();
           createSprites(count, "batchInvalid");
         });
 
         balancedBatchBtn.addEventListener("click", () => {
-          const count = parseInt(spriteCountSlider.value);
+          const count = resolveSpriteCount();
           createSprites(count, "balanced");
         });
 
