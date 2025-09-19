@@ -116,9 +116,9 @@
         <input
           id="countInput"
           type="number"
-          min="50"
+          min="1"
           max="6000"
-          step="50"
+          step="1"
           value="600"
           inputmode="numeric"
           autocomplete="off"
@@ -140,7 +140,7 @@
     </div>
     <div id="stageHost"></div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/4.7.3/pixi.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/4.7.3/pixi.js"></script>
     <script src="pixi-canvas-profiler.js"></script>
     <script src="canvas-profiler-hud.js"></script>
     <script>
@@ -246,7 +246,7 @@
         clearButton.addEventListener('click', clearBenchmark);
 
         countInput.addEventListener('change', () => {
-          const value = clamp(parseInt(countInput.value, 10) || 0, 50, 12000);
+          const value = clamp(parseInt(countInput.value, 10) || 0, 1, 12000);
           countInput.value = value;
         });
 
@@ -289,7 +289,7 @@
             return;
           }
 
-          const count = clamp(parseInt(countInput.value, 10) || 0, 50, 12000);
+          const count = clamp(parseInt(countInput.value, 10) || 0, 1, 12000);
           countInput.value = count;
 
           clearBenchmark();
