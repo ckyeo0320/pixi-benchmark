@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PixiJS 4.7 BitmapText Tint Benchmark</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0e0e14;
+        color: #f1f3f4;
+        font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      #stageHost {
+        position: absolute;
+        inset: 0;
+      }
+
+      #controlPanel {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px 16px;
+        background: rgba(14, 14, 20, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        backdrop-filter: blur(6px);
+        min-width: 260px;
+      }
+
+      #controlPanel label {
+        font-size: 13px;
+        color: #cfd3dc;
+      }
+
+      #countInput {
+        width: 100%;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(0, 0, 0, 0.36);
+        color: inherit;
+        font-size: 14px;
+        appearance: textfield;
+      }
+
+      #countInput::-webkit-outer-spin-button,
+      #countInput::-webkit-inner-spin-button {
+        margin: 0;
+        -webkit-appearance: none;
+      }
+
+      .buttons {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      button {
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(34, 34, 43, 0.85);
+        color: inherit;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.2s ease, border-color 0.2s ease;
+      }
+
+      button:hover {
+        background: rgba(48, 48, 58, 0.95);
+      }
+
+      button:active {
+        background: rgba(66, 66, 78, 0.95);
+      }
+
+      .danger {
+        border-color: rgba(255, 99, 99, 0.38);
+        background: rgba(101, 26, 26, 0.8);
+      }
+
+      .danger:hover {
+        background: rgba(134, 32, 32, 0.92);
+      }
+
+      #status {
+        font-size: 12px;
+        color: #9fa6b7;
+        line-height: 1.5;
+      }
+
+      #legend {
+        font-size: 12px;
+        color: #818898;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="controlPanel">
+      <div>
+        <label for="countInput">그릴 BitmapText 개수</label>
+        <input
+          id="countInput"
+          type="number"
+          min="50"
+          max="6000"
+          step="50"
+          value="600"
+          inputmode="numeric"
+          autocomplete="off"
+        />
+      </div>
+      <div class="buttons">
+        <button id="plainButton">1. BitmapText (tint 없음)</button>
+        <button id="tintButton">2. BitmapText + tint</button>
+        <button id="bakeButton">3. RenderTexture로 구움</button>
+        <button id="atlasButton">4. RenderTexture 아틀라스</button>
+        <button id="clearButton" class="danger">모두 지우기</button>
+      </div>
+      <div id="status">현재 모드: 없음</div>
+      <div id="legend">
+        1) 순수 BitmapText<br />
+        2) CanvasTint 동작 확인용 tint<br />
+        3) 2번을 RenderTexture로 선렌더 후 스프라이트로 사용
+      </div>
+    </div>
+    <div id="stageHost"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/4.7.3/pixi.min.js"></script>
+    <script src="pixi-canvas-profiler.js"></script>
+    <script src="canvas-profiler-hud.js"></script>
+    <script>
+      (function () {
+        'use strict';
+
+        if (!PIXI || !PIXI.extras || !PIXI.extras.BitmapText) {
+          console.error('PixiJS 4.7 환경이 필요합니다.');
+          return;
+        }
+
+        const FONT_NAME = 'Desyrel';
+        const FONT_SIZE = 48;
+        const TINT_PALETTE = [
+          0xff7043,
+          0xffca28,
+          0x26c6da,
+          0x7e57c2,
+          0x66bb6a,
+          0xff8a80,
+        ];
+        const MODE_LABELS = {
+          plain: '1) BitmapText (tint 없음)',
+          tinted: '2) BitmapText + tint',
+          baked: '3) RenderTexture로 구운 BitmapText',
+          atlased: '4) RenderTexture 아틀라스',
+        };
+
+        const app = new PIXI.Application(window.innerWidth, window.innerHeight, {
+          backgroundColor: 0x13131f,
+          forceCanvas: true,
+          antialias: false,
+          resolution: window.devicePixelRatio || 1,
+          autoStart: true,
+        });
+
+        const stageHost = document.getElementById('stageHost');
+        stageHost.appendChild(app.view);
+        app.view.style.width = '100%';
+        app.view.style.height = '100%';
+        app.view.style.display = 'block';
+
+        const scene = new PIXI.Container();
+        app.stage.addChild(scene);
+        const atlasManager = createRenderTextureAtlasManager(1024, 4);
+
+        const statusEl = document.getElementById('status');
+        const countInput = document.getElementById('countInput');
+        const plainButton = document.getElementById('plainButton');
+        const tintButton = document.getElementById('tintButton');
+        const bakeButton = document.getElementById('bakeButton');
+        const atlasButton = document.getElementById('atlasButton');
+        const clearButton = document.getElementById('clearButton');
+        const controlButtons = [plainButton, tintButton, bakeButton, atlasButton];
+
+        if (window.__hud && typeof window.__hud.auto === 'function') {
+          window.__hud.auto({ position: 'top-right' });
+        }
+        setControlsEnabled(false);
+        loadBitmapFont()
+          .then(() => {
+            setControlsEnabled(true);
+            statusEl.textContent = 'BitmapFont 로드 완료. 모드를 선택하세요.';
+          })
+          .catch((error) => {
+            console.error('BitmapFont load failed', error);
+            statusEl.textContent = '폰트 로드 실패: 콘솔을 확인하세요.';
+          });
+
+        let activeNodes = [];
+        let currentMode = null;
+
+        const WORD_POOL = [
+          'Orion',
+          'Lyra',
+          'Phoenix',
+          'Hydra',
+          'Andromeda',
+          'Cassiopeia',
+          'Draco',
+          'Aquila',
+          'Vulpecula',
+          'Perseus',
+          'Auriga',
+          'Cygnus',
+          'Crux',
+          'Pavo',
+          'Volans',
+          'Equuleus',
+        ];
+
+        const MODE_CREATORS = {
+          plain: createPlainBitmapText,
+          tinted: createTintedBitmapText,
+          baked: createBakedBitmapText,
+          atlased: createAtlasedBitmapText,
+        };
+
+        plainButton.addEventListener('click', () => runBenchmark('plain'));
+        tintButton.addEventListener('click', () => runBenchmark('tinted'));
+        bakeButton.addEventListener('click', () => runBenchmark('baked'));
+        atlasButton.addEventListener('click', () => runBenchmark('atlased'));
+        clearButton.addEventListener('click', clearBenchmark);
+
+        countInput.addEventListener('change', () => {
+          const value = clamp(parseInt(countInput.value, 10) || 0, 50, 12000);
+          countInput.value = value;
+        });
+
+        window.addEventListener('resize', () => {
+          const width = window.innerWidth;
+          const height = window.innerHeight;
+          app.renderer.resize(width, height);
+        });
+
+        app.ticker.add(() => {
+          const width = app.renderer.width;
+          const height = app.renderer.height;
+          for (let i = 0; i < activeNodes.length; i++) {
+            const node = activeNodes[i];
+            const display = node.display;
+            display.rotation += node.rotationSpeed;
+            display.position.x += node.vx;
+            display.position.y += node.vy;
+
+            if (display.position.x < -node.bounds) {
+              display.position.x = width + node.bounds;
+            } else if (display.position.x > width + node.bounds) {
+              display.position.x = -node.bounds;
+            }
+
+            if (display.position.y < -node.bounds) {
+              display.position.y = height + node.bounds;
+            } else if (display.position.y > height + node.bounds) {
+              display.position.y = -node.bounds;
+            }
+          }
+        });
+
+        function runBenchmark(mode) {
+          const creator = MODE_CREATORS[mode];
+          if (!creator) return;
+
+          if (!isFontReady()) {
+            console.warn('BitmapFont not ready yet.');
+            return;
+          }
+
+          const count = clamp(parseInt(countInput.value, 10) || 0, 50, 12000);
+          countInput.value = count;
+
+          clearBenchmark();
+
+          const objects = [];
+          for (let i = 0; i < count; i++) {
+            const result = creator(i);
+            if (!result) continue;
+            const display = result.display;
+            finalizeDisplay(display);
+            scene.addChild(display);
+            objects.push({
+              display,
+              cleanup: result.cleanup,
+              vx: (Math.random() - 0.5) * 2.2,
+              vy: (Math.random() - 0.5) * 2.2,
+              rotationSpeed: (Math.random() - 0.5) * 0.02,
+              bounds: Math.max(24, (display.width + display.height) * 0.25),
+            });
+          }
+
+          activeNodes = objects;
+          currentMode = mode;
+          updateStatus(objects.length);
+        }
+
+        function clearBenchmark() {
+          if (activeNodes.length) {
+            for (let i = 0; i < activeNodes.length; i++) {
+              const node = activeNodes[i];
+              if (node.display.parent) {
+                node.display.parent.removeChild(node.display);
+              }
+              if (typeof node.cleanup === 'function') {
+                node.cleanup();
+              } else {
+                node.display.destroy({ children: true });
+              }
+            }
+          }
+
+          activeNodes.length = 0;
+          currentMode = null;
+          atlasManager.reset();
+          updateStatus(0);
+        }
+
+        function updateStatus(count) {
+          if (!currentMode) {
+            statusEl.textContent = '현재 모드: 없음';
+            return;
+          }
+          let extra = '';
+          if (currentMode === 'atlased') {
+            extra = ` | 아틀라스 수: ${atlasManager.atlasCount()}`;
+          }
+          statusEl.textContent = `${MODE_LABELS[currentMode]} | 객체 수: ${count}${extra}`;
+        }
+
+        function createPlainBitmapText(index) {
+          const text = sampleLabel(index);
+          const display = new PIXI.extras.BitmapText(text, {
+            font: `${FONT_SIZE}px ${FONT_NAME}`,
+            align: 'left',
+          });
+          display.tint = 0xffffff;
+          return {
+            display,
+            cleanup() {
+              display.destroy({ children: true });
+            },
+          };
+        }
+
+        function createTintedBitmapText(index) {
+          const text = sampleLabel(index);
+          const display = new PIXI.extras.BitmapText(text, {
+            font: `${FONT_SIZE}px ${FONT_NAME}`,
+            align: 'left',
+          });
+          display.tint = TINT_PALETTE[index % TINT_PALETTE.length];
+          return {
+            display,
+            cleanup() {
+              display.destroy({ children: true });
+            },
+          };
+        }
+
+        function createBakedBitmapText(index) {
+          const text = sampleLabel(index);
+          const bitmap = new PIXI.extras.BitmapText(text, {
+            font: `${FONT_SIZE}px ${FONT_NAME}`,
+            align: 'left',
+          });
+          bitmap.tint = TINT_PALETTE[index % TINT_PALETTE.length];
+          bitmap.updateText();
+
+          const texture = app.renderer.generateTexture(bitmap, PIXI.SCALE_MODES.LINEAR, 1);
+          bitmap.destroy({ children: true });
+
+          const sprite = new PIXI.Sprite(texture);
+          return {
+            display: sprite,
+            cleanup() {
+              sprite.destroy({ children: true, texture: false, baseTexture: false });
+              texture.destroy(true);
+            },
+          };
+        }
+
+        function createAtlasedBitmapText(index) {
+          const text = sampleLabel(index);
+          const bitmap = new PIXI.extras.BitmapText(text, {
+            font: `${FONT_SIZE}px ${FONT_NAME}`,
+            align: 'left',
+          });
+          bitmap.tint = TINT_PALETTE[index % TINT_PALETTE.length];
+          bitmap.updateText();
+
+          const tempTexture = app.renderer.generateTexture(bitmap, PIXI.SCALE_MODES.LINEAR, 1);
+          bitmap.destroy({ children: true });
+
+          const packed = atlasManager.allocate(tempTexture);
+          tempTexture.destroy(true);
+
+          if (!packed) {
+            console.warn('Atlas capacity exceeded; skipping text.');
+            return null;
+          }
+
+          const sprite = new PIXI.Sprite(packed.texture);
+          return {
+            display: sprite,
+            cleanup() {
+              sprite.destroy({ children: true, texture: true, baseTexture: false });
+            },
+          };
+        }
+
+        function finalizeDisplay(display) {
+          const bounds = display.getLocalBounds();
+          display.pivot.set(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+          const margin = 80;
+          const width = app.renderer.width;
+          const height = app.renderer.height;
+          display.position.set(
+            margin + Math.random() * Math.max(10, width - margin * 2),
+            margin + Math.random() * Math.max(10, height - margin * 2)
+          );
+          display.rotation = Math.random() * Math.PI * 2;
+        }
+
+        function sampleLabel(index) {
+          const word = WORD_POOL[index % WORD_POOL.length];
+          return `${word} ${((index * 17) % 9999).toString().padStart(4, '0')}`;
+        }
+
+        function clamp(value, min, max) {
+          return Math.max(min, Math.min(max, value));
+        }
+
+        function createRenderTextureAtlasManager(size = 1024, padding = 4) {
+          const atlases = [];
+
+          function createAtlas() {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, size, size);
+
+            const baseTexture = new PIXI.BaseTexture(canvas, PIXI.SCALE_MODES.LINEAR, 1);
+            baseTexture.mipmap = false;
+
+            return {
+              size,
+              padding,
+              canvas,
+              ctx,
+              baseTexture,
+              cursorX: padding,
+              cursorY: padding,
+              rowHeight: 0,
+            };
+          }
+
+          function tryPlace(atlas, width, height) {
+            if (width > size - padding * 2 || height > size - padding * 2) {
+              return null;
+            }
+
+            if (atlas.cursorX + width > size - padding) {
+              atlas.cursorX = padding;
+              atlas.cursorY += atlas.rowHeight + padding;
+              atlas.rowHeight = 0;
+            }
+
+            if (atlas.cursorY + height > size - padding) {
+              return null;
+            }
+
+            const placement = {
+              x: atlas.cursorX,
+              y: atlas.cursorY,
+            };
+
+            atlas.cursorX += width + padding;
+            atlas.rowHeight = Math.max(atlas.rowHeight, height);
+
+            return placement;
+          }
+
+          function allocate(texture) {
+            if (!texture) return null;
+
+            const frame = texture.frame || texture.orig;
+            const width = Math.ceil(frame.width);
+            const height = Math.ceil(frame.height);
+            let placement = null;
+            let atlas = null;
+
+            for (let i = 0; i < atlases.length; i++) {
+              placement = tryPlace(atlases[i], width, height);
+              if (placement) {
+                atlas = atlases[i];
+                break;
+              }
+            }
+
+            if (!placement) {
+              atlas = createAtlas();
+              atlases.push(atlas);
+              placement = tryPlace(atlas, width, height);
+              if (!placement) {
+                console.warn('Glyph is larger than atlas size; allocation skipped.');
+                return null;
+              }
+            }
+
+            let source = texture.baseTexture.source;
+            if (!source && typeof texture.baseTexture.getDrawableSource === 'function') {
+              source = texture.baseTexture.getDrawableSource();
+            }
+            if (!source) {
+              console.warn('Texture source unavailable for atlas copy.');
+              return null;
+            }
+
+            atlas.ctx.clearRect(placement.x, placement.y, width, height);
+            atlas.ctx.drawImage(
+              source,
+              frame.x,
+              frame.y,
+              frame.width,
+              frame.height,
+              placement.x,
+              placement.y,
+              width,
+              height
+            );
+
+            if (typeof atlas.baseTexture.update === 'function') {
+              atlas.baseTexture.update();
+            } else {
+              atlas.baseTexture.dirtyId = (atlas.baseTexture.dirtyId || 0) + 1;
+            }
+
+            const frameRect = new PIXI.Rectangle(placement.x, placement.y, width, height);
+            const packedTexture = new PIXI.Texture(atlas.baseTexture, frameRect);
+            packedTexture.orig = new PIXI.Rectangle(0, 0, width, height);
+            packedTexture.trim = null;
+
+            return { texture: packedTexture };
+          }
+
+          function reset() {
+            while (atlases.length) {
+              const atlas = atlases.pop();
+              atlas.baseTexture.destroy(true);
+            }
+          }
+
+          return {
+            allocate,
+            reset,
+            atlasCount: () => atlases.length,
+          };
+        }
+
+        function loadBitmapFont() {
+          if (isFontReady()) {
+            return Promise.resolve();
+          }
+
+          return new Promise((resolve, reject) => {
+            const loader = new PIXI.loaders.Loader();
+            loader.add('benchmarkFont', 'https://pixijs.io/examples/examples/assets/bitmap-font/desyrel.xml');
+            loader.once('complete', () => {
+              if (isFontReady()) {
+                resolve();
+              } else {
+                reject(new Error('BitmapFont registration failed'));
+              }
+            });
+            loader.once('error', (err) => reject(err));
+            loader.load();
+          });
+        }
+
+        function isFontReady() {
+          return !!PIXI.extras.BitmapText.fonts[FONT_NAME];
+        }
+
+        function setControlsEnabled(enabled) {
+          controlButtons.forEach((button) => {
+            button.disabled = !enabled;
+          });
+          countInput.disabled = !enabled;
+        }
+      })();
+    </script>
+  </body>
+</html>
