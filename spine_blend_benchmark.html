@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spine Blend Animation Benchmark</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0d1018;
+        color: #eef2ff;
+        font-family: "Pretendard", "Apple SD Gothic Neo", "Segoe UI", sans-serif;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      #stageHost {
+        position: absolute;
+        inset: 0;
+      }
+
+      #controlPanel {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px 16px;
+        background: rgba(11, 14, 22, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        backdrop-filter: blur(6px);
+        min-width: 280px;
+      }
+
+      #controlPanel label {
+        font-size: 13px;
+        color: #cfd3dc;
+      }
+
+      input[type="number"] {
+        width: 100%;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(0, 0, 0, 0.35);
+        color: inherit;
+        font-size: 14px;
+        appearance: textfield;
+      }
+
+      input[type="number"]::-webkit-outer-spin-button,
+      input[type="number"]::-webkit-inner-spin-button {
+        margin: 0;
+        -webkit-appearance: none;
+      }
+
+      .buttons {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      button {
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(32, 36, 48, 0.9);
+        color: inherit;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.2s ease, border-color 0.2s ease;
+      }
+
+      button:hover {
+        background: rgba(46, 52, 66, 0.95);
+      }
+
+      button:active {
+        background: rgba(60, 67, 86, 0.95);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+
+      .danger {
+        border-color: rgba(255, 99, 99, 0.38);
+        background: rgba(101, 26, 26, 0.78);
+      }
+
+      .danger:hover {
+        background: rgba(138, 32, 32, 0.92);
+      }
+
+      #status {
+        font-size: 12px;
+        color: #96a0ba;
+        line-height: 1.5;
+      }
+
+      #note {
+        position: absolute;
+        right: 16px;
+        bottom: 16px;
+        z-index: 20;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.55);
+        max-width: 320px;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="controlPanel">
+      <div>
+        <label for="instanceCount">생성할 Spine 인스턴스 수</label>
+        <input
+          id="instanceCount"
+          type="number"
+          min="1"
+          max="400"
+          step="1"
+          value="40"
+        />
+      </div>
+      <div>
+        <label for="timeScale">애니메이션 배속</label>
+        <input
+          id="timeScale"
+          type="number"
+          min="0.1"
+          max="3"
+          step="0.1"
+          value="1.0"
+        />
+      </div>
+      <div class="buttons">
+        <button id="spawnBaseBtn">1. 기본 루프</button>
+        <button id="spawnBlendBtn">2. 기본 + 보조 트랙</button>
+        <button id="randomizeBtn">배치 재정렬</button>
+        <button id="clearBtn" class="danger">모두 제거</button>
+      </div>
+      <div id="status">리소스 로드 중...</div>
+    </div>
+    <div id="stageHost"></div>
+    <div id="note">
+      PixiJS 4.7.3 + pixi-spine 1.5.x 조합<br />
+      로컬 Spineboy Hover 에셋(fly) 블렌드 슬롯(×5 additive) 성능을 비교합니다.
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/4.7.3/pixi.js"></script>
+    <script src="pixi-spine.js"></script>
+    <script src="pixi-canvas-profiler.js"></script>
+    <script src="canvas-profiler-hud.js"></script>
+    <script>
+      (function () {
+        "use strict";
+
+        const SPINE_JSON_PATH = "assets/spine/spineboy/export/spineboy-hover.json";
+        const SPINE_ATLAS_PATH = "assets/spine/spineboy/export/spineboy.atlas";
+        const DEFAULT_PRIMARY_ANIMATION = "fly";
+        const BLEND_ANIMATION_PRIORITY = [
+          "fly",
+          "walk",
+          "run",
+          "shoot",
+          "idle",
+        ];
+        const BASE_SCALE = 0.5;
+
+        const app = new PIXI.Application(
+          window.innerWidth,
+          window.innerHeight,
+          {
+            backgroundColor: 0x101522,
+            autoStart: true,
+            antialias: false,
+            forceCanvas: true,
+            resolution: window.devicePixelRatio || 1,
+          }
+        );
+
+        const stageHost = document.getElementById("stageHost");
+        stageHost.appendChild(app.view);
+        app.view.style.width = "100%";
+        app.view.style.height = "100%";
+        app.view.style.display = "block";
+
+        const scene = new PIXI.Container();
+        app.stage.addChild(scene);
+
+        if (window.__hud && typeof window.__hud.auto === "function") {
+          window.__hud.auto({ position: "top-right" });
+        }
+
+        if (
+          PIXI.spine &&
+          PIXI.spine.SpineParser &&
+          typeof PIXI.spine.SpineParser.registerLoaderPlugin === "function"
+        ) {
+          PIXI.spine.SpineParser.registerLoaderPlugin();
+        }
+
+        const statusEl = document.getElementById("status");
+        const countInput = document.getElementById("instanceCount");
+        const timeScaleInput = document.getElementById("timeScale");
+        const spawnBaseBtn = document.getElementById("spawnBaseBtn");
+        const spawnBlendBtn = document.getElementById("spawnBlendBtn");
+        const randomizeBtn = document.getElementById("randomizeBtn");
+        const clearBtn = document.getElementById("clearBtn");
+
+        if (!PIXI.spine || !PIXI.spine.Spine) {
+          console.error(
+            "pixi-spine runtime을 찾을 수 없습니다. CDN 로드를 확인하세요."
+          );
+          statusEl.textContent =
+            "pixi-spine 스크립트 로드 실패. 콘솔을 확인하세요.";
+          return;
+        }
+
+        if (
+          PIXI.spine.SpineParser &&
+          typeof PIXI.spine.SpineParser.registerLoaderPlugin === "function"
+        ) {
+          PIXI.spine.SpineParser.registerLoaderPlugin();
+        }
+
+        let spineData = null;
+        let primaryAnimation = DEFAULT_PRIMARY_ANIMATION;
+        let blendAnimation = null;
+        let availableAnimations = [];
+        let blendSlotCount = 0;
+        let blendSlotBreakdown = "";
+        const actors = [];
+
+        disableControls();
+        loadSpineData()
+          .then(({ spineData: data, rawData }) => {
+            spineData = data;
+            if (rawData) {
+              analyseAvailableAnimations(rawData);
+            } else {
+              analyseAvailableAnimations();
+            }
+            enableControls();
+            updateStatus();
+          })
+          .catch((err) => {
+            console.error("Spine load failed", err);
+            statusEl.textContent =
+              "Spine 데이터를 불러오지 못했습니다. 콘솔을 확인하세요.";
+          });
+
+        spawnBaseBtn.addEventListener("click", () => spawnBatch("single"));
+        spawnBlendBtn.addEventListener("click", () => spawnBatch("blend"));
+        randomizeBtn.addEventListener("click", randomizePositions);
+        clearBtn.addEventListener("click", clearAll);
+
+        window.addEventListener("resize", () => {
+          const width = window.innerWidth;
+          const height = window.innerHeight;
+          app.renderer.resize(width, height);
+          randomizePositions();
+        });
+
+        app.ticker.add(() => {
+          // 살짝 수평으로 움직여서 화면에 activity를 줍니다.
+          const width = app.renderer.width;
+          for (let i = 0; i < actors.length; i++) {
+            const actor = actors[i];
+            const spine = actor.spine;
+            spine.x += actor.vx;
+            if (spine.x > width + actor.bounds) {
+              spine.x = -actor.bounds;
+            } else if (spine.x < -actor.bounds) {
+              spine.x = width + actor.bounds;
+            }
+          }
+        });
+
+        function loadSpineData() {
+          return new Promise((resolve, reject) => {
+            const loader = new PIXI.loaders.Loader();
+            loader.add("voucher", SPINE_JSON_PATH, {
+              metadata: {
+                spineAtlasSuffix: ".atlas",
+                spineAtlasFile: SPINE_ATLAS_PATH,
+              },
+            });
+            loader.load((_, resources) => {
+              const resource = resources.voucher;
+              if (!resource) {
+                reject(new Error("리소스를 찾을 수 없습니다."));
+                return;
+              }
+              if (!resource.spineData) {
+                reject(
+                  new Error(
+                    "spineData 파싱에 실패했습니다. (pixi-spine 플러그인 확인)"
+                  )
+                );
+                return;
+              }
+              resolve({ spineData: resource.spineData, rawData: resource.data });
+            });
+            loader.onError.add((err) => reject(err));
+          });
+        }
+
+        function spawnBatch(mode) {
+          if (!spineData) return;
+          const count = clamp(parseInt(countInput.value, 10) || 0, 1, 400);
+          const timeScale = clamp(
+            parseFloat(timeScaleInput.value) || 1,
+            0.1,
+            5
+          );
+          countInput.value = count;
+          timeScaleInput.value = timeScale.toFixed(1);
+
+          if (mode === "blend" && !blendAnimation) {
+            console.warn("블렌드 가능한 애니메이션을 찾지 못했습니다.");
+            updateStatus();
+            return;
+          }
+
+          for (let i = 0; i < count; i++) {
+            const spine = new PIXI.spine.Spine(spineData);
+            const scaleJitter = 0.8 + Math.random() * 0.4;
+            spine.scale.set(BASE_SCALE * scaleJitter);
+
+            const stateData =
+              spine.stateData || (spine.state && spine.state.data);
+            if (stateData) {
+              safeSetMix(stateData, primaryAnimation, primaryAnimation, 0.15);
+              if (blendAnimation) {
+                safeSetMix(stateData, primaryAnimation, blendAnimation, 0.35);
+                safeSetMix(stateData, blendAnimation, primaryAnimation, 0.35);
+              }
+            }
+
+            const track0 = spine.state.setAnimation(0, primaryAnimation, true);
+            track0.alpha = 1;
+            spine.state.timeScale = timeScale;
+
+            if (mode === "blend" && blendAnimation && hasAnimation(blendAnimation)) {
+              const track1 = spine.state.setAnimation(1, blendAnimation, true);
+              if (track1) {
+                track1.alpha = 0.45 + Math.random() * 0.25;
+                if (
+                  typeof track1.animationEnd === "number" &&
+                  track1.animationEnd > 0
+                ) {
+                  track1.trackTime = Math.random() * track1.animationEnd;
+                }
+              }
+            }
+
+            finalizePlacement(spine);
+            scene.addChild(spine);
+
+            actors.push({
+              spine,
+              vx: (Math.random() - 0.5) * 0.8,
+              bounds: Math.max(40, spine.width * 0.5),
+              mode,
+            });
+          }
+
+          updateStatus();
+        }
+
+        function finalizePlacement(spine) {
+          const width = app.renderer.width;
+          const height = app.renderer.height;
+          const margin = 80;
+          spine.x = margin + Math.random() * Math.max(10, width - margin * 2);
+          spine.y = margin + Math.random() * Math.max(10, height - margin * 2);
+        }
+
+        function randomizePositions() {
+          for (let i = 0; i < actors.length; i++) {
+            finalizePlacement(actors[i].spine);
+          }
+        }
+
+        function clearAll() {
+          for (let i = 0; i < actors.length; i++) {
+            const actor = actors[i];
+            actor.spine.state.clearTracks();
+            if (actor.spine.parent) {
+              actor.spine.parent.removeChild(actor.spine);
+            }
+            actor.spine.destroy({
+              children: true,
+              texture: false,
+              baseTexture: false,
+            });
+          }
+          actors.length = 0;
+          updateStatus();
+        }
+
+        function updateStatus() {
+          if (!spineData) {
+            statusEl.textContent = "리소스 로드 중...";
+            return;
+          }
+          const blendCount = actors.filter(
+            (item) => item.mode === "blend"
+          ).length;
+          const singleCount = actors.length - blendCount;
+          const blendInfo = blendAnimation
+            ? blendAnimation === primaryAnimation
+              ? `${primaryAnimation} (2트랙)`
+              : `${primaryAnimation} ↔ ${blendAnimation}`
+            : `${primaryAnimation} (단일)`;
+          const blendStats = blendSlotCount
+            ? ` | 블렌드 슬롯: ${blendSlotCount}${blendSlotBreakdown ? ` (${blendSlotBreakdown})` : ""}`
+            : "";
+          statusEl.textContent = `총 Spine: ${actors.length} (기본: ${singleCount}, 블렌드: ${blendCount}) | 애니메이션: ${blendInfo}${blendStats}`;
+        }
+
+        function safeSetMix(stateData, from, to, duration) {
+          if (!stateData || from === to) {
+            return;
+          }
+          if (hasAnimation(from) && hasAnimation(to)) {
+            stateData.setMix(from, to, duration);
+          }
+        }
+
+        function hasAnimation(name) {
+          return name && availableAnimations.includes(name);
+        }
+
+        function analyseAvailableAnimations(rawData) {
+          const namesFromJson = rawData && rawData.animations ? Object.keys(rawData.animations) : [];
+          const namesFromSkeleton = spineData && spineData.animations
+            ? spineData.animations.map((anim) => anim.name)
+            : [];
+          const merged = new Set([...namesFromJson, ...namesFromSkeleton]);
+          availableAnimations = Array.from(merged);
+
+          if (rawData && Array.isArray(rawData.slots)) {
+            const counts = rawData.slots.reduce(
+              (acc, slot) => {
+                const blend = slot && slot.blend;
+                if (blend && blend !== "normal") {
+                  acc.total += 1;
+                  acc.detail.set(blend, (acc.detail.get(blend) || 0) + 1);
+                }
+                return acc;
+              },
+              { total: 0, detail: new Map() }
+            );
+            blendSlotCount = counts.total;
+            blendSlotBreakdown = counts.detail.size
+              ? Array.from(counts.detail.entries())
+                  .map(([blend, count]) => `${blend} ${count}`)
+                  .join(", ")
+              : "";
+          } else {
+            blendSlotCount = 0;
+            blendSlotBreakdown = "";
+          }
+
+          if (!availableAnimations.length) {
+            blendAnimation = null;
+            return;
+          }
+
+          if (!availableAnimations.includes(primaryAnimation)) {
+            primaryAnimation = availableAnimations.includes(DEFAULT_PRIMARY_ANIMATION)
+              ? DEFAULT_PRIMARY_ANIMATION
+              : availableAnimations[0];
+          }
+
+          blendAnimation = selectBlendAnimation();
+        }
+
+        function selectBlendAnimation() {
+          if (!availableAnimations.length) return null;
+
+          for (const candidate of BLEND_ANIMATION_PRIORITY) {
+            if (candidate !== primaryAnimation && availableAnimations.includes(candidate)) {
+              return candidate;
+            }
+          }
+
+          const fallback = availableAnimations.find((name) => name !== primaryAnimation);
+          if (fallback) {
+            return fallback;
+          }
+
+          return availableAnimations.length ? availableAnimations[0] : null;
+        }
+
+        function updateButtonLabels() {
+          spawnBaseBtn.textContent = `1. ${primaryAnimation} 루프`;
+          if (blendAnimation) {
+            spawnBlendBtn.disabled = false;
+            spawnBlendBtn.textContent =
+              blendAnimation === primaryAnimation
+                ? `2. ${primaryAnimation} (추가 트랙)`
+                : `2. ${primaryAnimation} + ${blendAnimation}`;
+          } else {
+            spawnBlendBtn.disabled = true;
+            spawnBlendBtn.textContent = "2. 블렌드 애니메이션 없음";
+          }
+        }
+
+        function disableControls() {
+          spawnBaseBtn.disabled = true;
+          spawnBlendBtn.disabled = true;
+          randomizeBtn.disabled = true;
+          clearBtn.disabled = true;
+          countInput.disabled = true;
+          timeScaleInput.disabled = true;
+        }
+
+        function enableControls() {
+          spawnBaseBtn.disabled = false;
+          spawnBlendBtn.disabled = !blendAnimation;
+          randomizeBtn.disabled = false;
+          clearBtn.disabled = false;
+          countInput.disabled = false;
+          timeScaleInput.disabled = false;
+          updateButtonLabels();
+        }
+
+        function clamp(value, min, max) {
+          return Math.max(min, Math.min(max, value));
+        }
+      })();
+    </script>
+  </body>
+</html>
