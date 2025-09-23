@@ -220,10 +220,32 @@
 
       restoreData.sort((a, b) => a.index - b.index);
       for (let j = 0; j < restoreData.length; j++) {
-        state.clearTrack(restoreData[j].index);
+        const trackIndex = restoreData[j].index;
+        // clearTrack 대신 timeScale과 alpha로만 정지
+        const track = state.tracks[trackIndex];
+        if (track) {
+          track.timeScale = 0;
+          track.alpha = 0;
+        }
       }
+      
+      // 원래 값들을 먼저 저장
+      const originalAutoUpdate = spine.autoUpdate;
+      const originalVisible = spine.visible;
+      
+      // spine 전체 업데이트를 멈춤
+      if (spine.autoUpdate !== undefined) {
+        spine.autoUpdate = false;
+      }
+      
+      // spine을 화면에서 숨김
+      spine.visible = false;
 
-      tracker.pauseMeta.set(spine, restoreData);
+      tracker.pauseMeta.set(spine, {
+        restoreData,
+        originalAutoUpdate,
+        originalVisible
+      });
       tracker.paused.add(spine);
       stoppedCount++;
     });
@@ -252,11 +274,26 @@
 
       const state = spine.state;
       const meta = tracker.pauseMeta.get(spine);
-      if (!Array.isArray(meta) || !meta.length) continue;
+      if (!meta || !Array.isArray(meta.restoreData) || !meta.restoreData.length) continue;
 
-      meta.sort((a, b) => a.index - b.index);
-      for (let j = 0; j < meta.length; j++) {
-        const info = meta[j];
+      // autoUpdate와 visible 복원
+      if (meta.originalAutoUpdate !== undefined) {
+        spine.autoUpdate = meta.originalAutoUpdate;
+      }
+      if (meta.originalVisible !== undefined) {
+        spine.visible = meta.originalVisible;
+      }
+
+      // 기존 정지된 track들 정리
+      meta.restoreData.forEach(info => {
+        if (info && typeof info.index === "number") {
+          state.clearTrack(info.index);
+        }
+      });
+
+      meta.restoreData.sort((a, b) => a.index - b.index);
+      for (let j = 0; j < meta.restoreData.length; j++) {
+        const info = meta.restoreData[j];
         if (!info || typeof info.index !== "number" || !info.animationName)
           continue;
         const entry = state.setAnimation(
